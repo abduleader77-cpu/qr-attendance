@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attendance reports · QR Attendance</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.wrap{max-width:560px}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:12px}
+th{text-align:left;color:var(--muted);font-weight:400;font-size:13px;padding:6px 4px;border-bottom:1px solid var(--line)}
+td{padding:8px 4px;border-bottom:1px solid var(--line)}
+td.r,th.r{text-align:right}
+.pill{font-size:12px;font-weight:700;padding:2px 8px;border-radius:4px;color:#1b2a2f}
+.ok{background:#8fd9b6}.mid{background:var(--amber)}.low{background:#f2a39d}
+h2{font-size:16px;margin:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div><h1>Attendance reports</h1><p class="sub" id="sub">Loading…</p></div>
+  </div>
+
+  <div class="card hide" id="box">
+    <label for="course" style="margin-top:0">Course</label>
+    <select id="course"></select>
+    <div class="sub" id="total" style="margin-top:10px"></div>
+    <table><thead><tr><th>Student</th><th class="r">Present</th><th class="r">Rate</th></tr></thead><tbody id="rows"></tbody></table>
+    <button id="csv">Download CSV</button>
+  </div>
+
+  <div class="card hide" id="hist" style="margin-top:14px">
+    <h2>Sessions held</h2>
+    <table><tbody id="sess"></tbody></table>
+  </div>
+
+  <button class="ghost" onclick="location.href='dashboard.html'">Back</button>
+  <div class="msg" id="msg" role="alert"></div>
+</div>
+
+<script type="module">
+import { auth, db } from "./firebase.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import { doc, getDoc, getDocs, collection, query, where } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let sessions = [], current = [];
+
+onAuthStateChanged(auth, async u => {
+  if (!u) { location.href = "index.html"; return; }
+  try {
+    const me = await getDoc(doc(db, "users", u.uid));
+    if (!me.exists() || me.data().role !== "lecturer") { location.href = "dashboard.html"; return; }
+    const ss = await getDocs(query(collection(db, "sessions"), where("lecturerId", "==", u.uid)));
+    sessions = ss.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt);
+    await Promise.all(sessions.map(async s => {
+      const a = await getDocs(query(collection(db, "attendance"), where("sessionId", "==", s.id)));
+      s.att = a.docs.map(x => x.data());
+    }));
+    if (!sessions.length) { $("sub").textContent = "No sessions yet. Start a class session to see reports here."; return; }
+    $("sub").textContent = "Pick a course to see each student's attendance.";
+    const courses = [...new Set(sessions.map(s => s.course))];
+    $("course").innerHTML = courses.map(c => "<option>" + esc(c) + "</option>").join("");
+    $("course").onchange = render;
+    $("box").classList.remove("hide"); $("hist").classList.remove("hide");
+    $("sess").innerHTML = sessions.map(s =>
+      "<tr><td>" + esc(s.course) + " · " + esc(s.room) + "<br><span class='sub'>" + new Date(s.createdAt).toLocaleString() +
+      "</span></td><td class='r'>" + s.att.length + " present</td></tr>").join("");
+    render();
+  } catch (e) { $("sub").textContent = "Couldn't load reports. Check your internet connection and refresh."; }
+});
+
+function render() {
+  const c = $("course").value, list = sessions.filter(s => s.course === c), total = list.length, m = {};
+  list.forEach(s => s.att.forEach(a => {
+    m[a.studentId] = m[a.studentId] || { name: a.name, id: a.idNumber, n: 0 };
+    m[a.studentId].n++;
+  }));
+  current = Object.values(m).sort((a, b) => a.name.localeCompare(b.name)).map(x => ({ ...x, total, pct: Math.round(x.n / total * 100) }));
+  $("total").textContent = total + (total === 1 ? " session held" : " sessions held");
+  $("rows").innerHTML = current.map(x =>
+    "<tr><td>" + esc(x.name) + "<br><span class='sub'>" + esc(x.id) + "</span></td><td class='r'>" + x.n + " / " + x.total +
+    "</td><td class='r'><span class='pill " + (x.pct >= 75 ? "ok" : x.pct >= 50 ? "mid" : "low") + "'>" + x.pct + "%</span></td></tr>").join("");
+}
+
+$("csv").onclick = () => {
+  const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+  const out = ["Name,ID,Present,Total,Percent"].concat(current.map(x => [q(x.name), q(x.id), x.n, x.total, x.pct].join(","))).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([out], { type: "text/csv" }));
+  a.download = ($("course").value || "attendance").replace(/\s+/g, "_") + ".csv";
+  a.click();
+};
+</script>
+</body>
+</html>

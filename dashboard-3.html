@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard · QR Attendance</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div><h1 id="hello">Loading…</h1><p class="sub" id="who"></p></div>
+  </div>
+
+  <div class="card">
+    <span class="tag" id="role"></span>
+    <div id="panel"></div>
+    <button class="ghost" id="out">Log out</button>
+  </div>
+  <div class="msg" id="msg" role="alert"></div>
+</div>
+
+<script type="module">
+import { auth, db } from "./firebase.js";
+import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import { doc, getDoc } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+
+const $ = id => document.getElementById(id);
+
+const panels = {
+  student: "<button onclick=\"location.href='scanner.html'\">Scan QR code</button><div class='soon'>Tap the button, then point your camera at the lecturer's screen.</div>",
+  lecturer: "<button onclick=\"location.href='lecturer.html'\">Start class session</button><button class=\"ghost\" onclick=\"location.href='reports.html'\">Attendance reports</button>",
+  admin: "<div class='soon'>Manage students, lecturers and courses will appear here.</div>"
+};
+
+onAuthStateChanged(auth, async u => {
+  if (!u) { location.href = "index.html"; return; }
+  const pending = sessionStorage.getItem("pendingScan");
+  if (pending) { sessionStorage.removeItem("pendingScan"); location.href = "scan.html" + pending; return; }
+  try {
+    const snap = await getDoc(doc(db, "users", u.uid));
+    if (!snap.exists()) { $("hello").textContent = "Profile not found"; $("msg").textContent = "Log out and create your account again."; return; }
+    const d = snap.data();
+    $("hello").textContent = "Welcome, " + d.name.split(" ")[0];
+    $("who").textContent = d.idNumber;
+    $("role").textContent = d.role.charAt(0).toUpperCase() + d.role.slice(1);
+    $("panel").innerHTML = panels[d.role] || "";
+  } catch (e) {
+    $("hello").textContent = "Couldn't load your profile";
+    $("msg").textContent = "Check your internet connection and refresh.";
+  }
+});
+
+$("out").onclick = () => signOut(auth).then(() => location.href = "index.html");
+</script>
+</body>
+</html>
