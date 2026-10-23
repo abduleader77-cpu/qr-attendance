@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marking attendance · QR Attendance</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div><h1 id="head">Checking…</h1><p class="sub" id="sub"></p></div>
+  </div>
+  <div class="card">
+    <div id="out" style="font-size:16px">Please wait while we confirm your attendance.</div>
+    <button class="ghost" onclick="location.href='dashboard.html'">Go to dashboard</button>
+  </div>
+</div>
+
+<script type="module">
+import { auth, db } from "./firebase.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+
+const $ = id => document.getElementById(id);
+const P = new URLSearchParams(location.search);
+const sid = P.get("s"), tok = P.get("t");
+const MAX_METRES = 200;
+
+function show(head, text) { $("head").textContent = head; $("out").textContent = text; }
+
+function metres(a, b, c, d) {
+  const R = 6371000, r = x => x * Math.PI / 180;
+  const h = Math.sin(r(c - a) / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(r(d - b) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+onAuthStateChanged(auth, async u => {
+  if (!sid || !tok) { show("No code found", "Scan the lecturer's QR code with your phone camera."); return; }
+  if (!u) { sessionStorage.setItem("pendingScan", location.search); location.href = "index.html"; return; }
+  try {
+    const me = await getDoc(doc(db, "users", u.uid));
+    if (!me.exists() || me.data().role !== "student") { show("Students only", "Log in with a student account to mark attendance."); return; }
+    const s = await getDoc(doc(db, "sessions", sid));
+    if (!s.exists() || !s.data().active) { show("Session closed", "This class session has ended."); return; }
+    const d = s.data();
+    if (d.token !== tok || Date.now() > d.tokenExpires) { show("Code expired", "Scan the new code on the lecturer's screen."); return; }
+    $("sub").textContent = d.course + " · " + d.room;
+    const mark = doc(db, "attendance", sid + "_" + u.uid);
+    if ((await getDoc(mark)).exists()) { show("Already marked", "You are already counted for this class."); return; }
+    show("Checking location…", "Allow location access so we can confirm you are in class.");
+    navigator.geolocation.getCurrentPosition(async p => {
+      const m = metres(p.coords.latitude, p.coords.longitude, d.lat, d.lng);
+      if (m > MAX_METRES) { show("Not in class", "You are about " + Math.round(m) + " m from the classroom."); return; }
+      await setDoc(mark, { sessionId: sid, studentId: u.uid, name: me.data().name, idNumber: me.data().idNumber, course: d.course, markedAt: Date.now() });
+      show("Attendance marked", "You are counted for " + d.course + ".");
+    }, () => show("Location needed", "Allow location access in your browser, then scan again."), { enableHighAccuracy: true, timeout: 15000 });
+  } catch (e) { show("Something went wrong", "Check your internet connection and scan again."); }
+});
+</script>
+</body>
+</html>
