@@ -1,0 +1,23 @@
+:root{--paper:#f6f5ef;--card:#fff;--ink:#1b2a2f;--muted:#5d6b6f;--line:#d9d8cf;--green:#1f6f54;--green-d:#15523d;--amber:#f2a900;--red:#b3261e}
+@media (prefers-color-scheme:dark){:root{--paper:#121a1c;--card:#1b2629;--ink:#eef1ec;--muted:#9fb0b3;--line:#2f3d41;--green:#3fb88a;--green-d:#2f9a72;--red:#f2857d}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--paper);color:var(--ink);font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;line-height:1.5}
+.wrap{max-width:420px;margin:0 auto;padding:28px 18px}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.mark{width:44px;height:44px;border-radius:6px;background:var(--green);display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:8px}
+.mark i{background:#fff;border-radius:1px}.mark i:nth-child(2),.mark i:nth-child(4),.mark i:nth-child(6){background:var(--amber)}
+h1{font-size:22px;margin:0;font-weight:700;letter-spacing:.2px}
+.sub{color:var(--muted);font-size:14px;margin:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:20px}
+label{display:block;font-size:13px;color:var(--muted);margin:14px 0 4px}
+input,select{width:100%;padding:11px 12px;font-size:16px;border:1px solid var(--line);border-radius:4px;background:var(--paper);color:var(--ink)}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+button{width:100%;margin-top:18px;padding:12px;font-size:16px;font-weight:700;border:0;border-radius:4px;background:var(--green);color:#fff;cursor:pointer}
+button:hover{background:var(--green-d)}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);margin-top:10px}
+.switch{text-align:center;font-size:14px;margin-top:16px;color:var(--muted)}
+.switch a{color:var(--green);font-weight:700;cursor:pointer}
+.msg{font-size:14px;margin-top:12px;min-height:20px;color:var(--red)}
+.hide{display:none}
+.tag{display:inline-block;font-size:13px;padding:3px 10px;border-radius:4px;background:var(--amber);color:#1b2a2f;font-weight:700}
+.soon{border:1px dashed var(--line);border-radius:6px;padding:14px;margin-top:14px;color:var(--muted);font-size:14px}
