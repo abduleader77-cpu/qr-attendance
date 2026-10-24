@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Courses · QR Attendance</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.row button{width:auto;margin:0;padding:8px 14px;font-size:14px}
+.grp{font-weight:700;font-size:14px;margin:16px 0 2px}
+.grp:first-child{margin-top:0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+h2{font-size:16px;margin:0}
+.wait{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:4px;background:var(--amber);color:#1b2a2f}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div><h1>My courses</h1><p class="sub" id="sub">Loading…</p></div>
+  </div>
+
+  <div class="card hide" id="req" style="margin-bottom:14px">
+    <h2>Request a course</h2>
+    <label for="code">Course code</label>
+    <input id="code" placeholder="CSC 401">
+    <label for="title">Course title</label>
+    <input id="title" placeholder="Software Engineering">
+    <div class="two">
+      <div><label for="level">Level</label><select id="level"><option>100</option><option>200</option><option>300</option><option selected>400</option><option>500</option></select></div>
+      <div><label for="sem">Semester</label><select id="sem"><option>First</option><option>Second</option></select></div>
+    </div>
+    <button id="send">Send request</button>
+    <div class="sub" style="margin-top:8px">The admin must approve it before students can see it.</div>
+  </div>
+
+  <input id="q" class="hide" placeholder="Search by code, title or lecturer" style="margin-bottom:14px">
+  <div class="card"><div id="list"></div></div>
+  <button class="ghost" onclick="location.href='dashboard.html'">Back</button>
+  <div class="msg" id="msg" role="alert"></div>
+</div>
+
+<script type="module">
+import { auth, db } from "./firebase.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import { doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, collection, query, where } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const who = c => (c.lecturerNames || (c.lecturerName ? [c.lecturerName] : [])).join(", ");
+let me, uid, all = [], mine = new Set();
+
+onAuthStateChanged(auth, async u => {
+  if (!u) { location.href = "index.html"; return; }
+  uid = u.uid;
+  const d = await getDoc(doc(db, "users", uid));
+  if (!d.exists() || !["student", "lecturer"].includes(d.data().role)) { location.href = "dashboard.html"; return; }
+  me = d.data();
+  if (me.role === "student") { $("q").classList.remove("hide"); $("q").oninput = render; }
+  else $("req").classList.remove("hide");
+  load();
+});
+
+async function load() {
+  try {
+    if (me.role === "lecturer") {
+      const cs = await getDocs(query(collection(db, "courses"), where("lecturerIds", "array-contains", uid)));
+      const rows = await Promise.all(cs.docs.map(async c => ({ id: c.id, ...c.data(),
+        n: c.data().status === "pending" ? 0 : (await getDocs(query(collection(db, "enrollments"), where("courseId", "==", c.id)))).size })));
+      $("sub").textContent = "Your approved courses and requests.";
+      $("list").innerHTML = rows.length ? rows.map(c => "<div class='row'><div>" + esc(c.code) + " · " + esc(c.title) + "<br><span class='sub'>" +
+        (c.level ? c.level + " level · " + esc(c.semester) + " semester · " : "") + (c.status === "pending" ? "<span class='wait'>Waiting for admin approval</span>" : c.n + " registered") +
+        "</span></div>" + (c.status === "pending" ? "<button class='ghost' data-cancel='" + c.id + "'>Cancel</button>" : "") + "</div>").join("")
+        : "<div class='sub'>No course yet. Send a request above, or ask the admin to assign you.</div>";
+    } else {
+      all = (await getDocs(collection(db, "courses"))).docs.map(d => ({ id: d.id, ...d.data() })).filter(c => c.status !== "pending");
+      mine = new Set((await getDocs(query(collection(db, "enrollments"), where("studentId", "==", uid)))).docs.map(x => x.data().courseId));
+      $("sub").textContent = "Register for the courses you take.";
+      render();
+    }
+  } catch (e) { $("msg").textContent = "Couldn't load courses. Check your internet connection and refresh."; }
+}
+
+function render() {
+  if (me.role !== "student") return;
+  const q = $("q").value.trim().toLowerCase();
+  const list = all.filter(c => !q || (c.code + " " + c.title + " " + who(c)).toLowerCase().includes(q));
+  if (!list.length) { $("list").innerHTML = "<div class='sub'>" + (all.length ? "No course matches your search." : "No courses yet. The admin will add them.") + "</div>"; return; }
+  const g = {};
+  list.forEach(c => { const k = c.level ? c.level + " level · " + c.semester + " semester" : "Other"; (g[k] = g[k] || []).push(c); });
+  const key = k => k === "Other" ? "9999" : k.slice(0, 3) + (k.includes("First") ? "1" : "2");
+  $("list").innerHTML = Object.keys(g).sort((a, b) => key(a).localeCompare(key(b))).map(k => "<div class='grp'>" + esc(k) + "</div>" +
+    g[k].sort((a, b) => a.code.localeCompare(b.code)).map(c => { const on = mine.has(c.id);
+      return "<div class='row'><div>" + esc(c.code) + " · " + esc(c.title) + "<br><span class='sub'>" + esc(who(c)) + "</span></div><button class='" + (on ? "ghost" : "") +
+        "' data-id='" + c.id + "' data-on='" + (on ? 1 : 0) + "'>" + (on ? "Leave" : "Register") + "</button></div>"; }).join("")).join("");
+}
+
+$("send").onclick = async () => {
+  const code = $("code").value.trim().toUpperCase(), title = $("title").value.trim();
+  if (!code || !title) { $("msg").textContent = "Enter the course code and title."; return; }
+  try {
+    const ex = (await getDocs(query(collection(db, "courses"), where("code", "==", code)))).docs.map(d => d.data());
+    if (ex.length) { $("msg").textContent = ex[0].status === "pending" ? code + " was already requested and is waiting for approval." : code + " already exists. Ask the admin to add you to it."; return; }
+    await addDoc(collection(db, "courses"), { code, title, level: Number($("level").value), semester: $("sem").value, lecturerIds: [uid], lecturerNames: [me.name],
+      status: "pending", requestedBy: uid, createdAt: Date.now() });
+    $("code").value = ""; $("title").value = ""; $("msg").textContent = ""; load();
+  } catch (e) { $("msg").textContent = "Couldn't send the request. Try again."; }
+};
+
+$("list").onclick = async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  try {
+    if (b.dataset.cancel) {
+      if (confirm("Cancel this course request?")) { await deleteDoc(doc(db, "courses", b.dataset.cancel)); load(); }
+      return;
+    }
+    if (!b.dataset.id) return;
+    const id = b.dataset.id, c = all.find(x => x.id === id), ref = doc(db, "enrollments", id + "_" + uid);
+    if (b.dataset.on === "1") await deleteDoc(ref);
+    else await setDoc(ref, { courseId: id, code: c.code, title: c.title, studentId: uid, name: me.name, idNumber: me.idNumber, enrolledAt: Date.now() });
+    load();
+  } catch (err) { $("msg").textContent = "Couldn't update. Try again."; }
+};
+</script>
+</body>
+</html>
