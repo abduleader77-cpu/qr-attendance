@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My attendance · QR Attendance</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.pill{font-size:13px;font-weight:700;padding:2px 10px;border-radius:4px;color:#1b2a2f}
+.ok{background:#8fd9b6}.mid{background:var(--amber)}.low{background:#f2a39d}
+.row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.big{font-size:40px;font-weight:700;line-height:1.1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div><h1>My attendance</h1><p class="sub" id="sub">Loading…</p></div>
+  </div>
+  <div id="out"></div>
+  <button class="ghost" onclick="location.href='dashboard.html'">Back</button>
+  <div class="msg" id="msg" role="alert"></div>
+</div>
+
+<script type="module">
+import { auth, db } from "./firebase.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import { doc, getDoc, getDocs, collection, query, where } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const pill = p => "<span class='pill " + (p >= 75 ? "ok" : p >= 50 ? "mid" : "low") + "'>" + p + "%</span>";
+
+onAuthStateChanged(auth, async u => {
+  if (!u) { location.href = "index.html"; return; }
+  try {
+    const me = await getDoc(doc(db, "users", u.uid));
+    if (!me.exists() || me.data().role !== "student") { location.href = "dashboard.html"; return; }
+    const en = (await getDocs(query(collection(db, "enrollments"), where("studentId", "==", u.uid)))).docs.map(d => d.data());
+    if (!en.length) {
+      $("sub").textContent = "You haven't registered for any course yet.";
+      $("out").innerHTML = "<button onclick=\"location.href='courses.html'\">Register for courses</button>";
+      return;
+    }
+    const mine = new Set((await getDocs(query(collection(db, "attendance"), where("studentId", "==", u.uid)))).docs.map(d => d.data().sessionId));
+    let A = 0, T = 0, html = "";
+    for (const e of en) {
+      const ss = (await getDocs(query(collection(db, "sessions"), where("courseId", "==", e.courseId)))).docs
+        .map(d => ({ id: d.id, ...d.data() })).filter(s => s.createdAt >= e.enrolledAt).sort((a, b) => b.createdAt - a.createdAt);
+      const a = ss.filter(s => mine.has(s.id)).length, p = ss.length ? Math.round(a / ss.length * 100) : 0;
+      A += a; T += ss.length;
+      html += "<div class='card' style='margin-top:14px'><div class='top'><div><b>" + esc(e.code) + "</b><br><span class='sub'>" + esc(e.title) +
+        "</span></div><div style='text-align:right'>" + pill(p) + "<br><span class='sub'>" + a + " / " + ss.length + " classes</span></div></div>" +
+        (ss.length ? ss.map(s => "<div class='row'><span>" + new Date(s.createdAt).toLocaleDateString() + " · " + esc(s.room) + "</span><span style='color:" +
+          (mine.has(s.id) ? "var(--green)" : "var(--red)") + "'>" + (mine.has(s.id) ? "Present" : "Absent") + "</span></div>").join("")
+          : "<div class='sub' style='margin-top:10px'>No classes held yet.</div>") + "</div>";
+    }
+    const op = T ? Math.round(A / T * 100) : 0;
+    $("sub").textContent = me.data().name + " · " + me.data().idNumber;
+    $("out").innerHTML = "<div class='card'><div class='sub'>Overall attendance</div><div class='top'><div class='big'>" + op + "%</div><div class='sub'>" + A + " of " + T +
+      " classes<br>" + en.length + " course" + (en.length === 1 ? "" : "s") + "</div></div></div>" + html;
+  } catch (e) { $("sub").textContent = "Couldn't load your attendance. Check your internet connection and refresh."; }
+});
+</script>
+</body>
+</html>
